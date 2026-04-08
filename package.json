@@ -1,0 +1,13 @@
+{
+  "name": "pitchprfct-support-agent-api",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
