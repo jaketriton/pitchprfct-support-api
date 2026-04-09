@@ -12,12 +12,11 @@
 import crypto from 'crypto';
 
 const INTERCOM_BASE = 'https://api.intercom.io';
-const TOKEN = process.env.INTERCOM_API_TOKEN;
-const WEBHOOK_SECRET = process.env.INTERCOM_WEBHOOK_SECRET;
+// Tokens are read at call time (not module load) so .env loading order works.
 
 function headers() {
   return {
-    Authorization: `Bearer ${TOKEN}`,
+    Authorization: `Bearer ${process.env.INTERCOM_API_TOKEN}`,
     'Content-Type': 'application/json',
     Accept: 'application/json',
   };

@@ -31,6 +31,7 @@ try {
 import express from 'express';
 import { investigate, MODULES } from './investigator.mjs';
 import { searchKnowledge, searchFeedback, recordFeedback, checkDbHealth } from './knowledge.mjs';
+import { startPoller } from './poller.mjs';
 import {
   getConversation, extractMessageHistory, getCustomerEmail,
   isBotTrigger, isBotFeedback, extractFeedback,
@@ -482,6 +483,13 @@ app.get('/health', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
+  // Start the Intercom poller (polling-based @bot trigger,
+  // bypasses webhook subscription issues)
+  if (process.env.INTERCOM_API_TOKEN && process.env.POLLER_ENABLED !== 'false') {
+    startPoller();
+  } else {
+    console.log('[POLLER] Disabled (set POLLER_ENABLED=true and INTERCOM_API_TOKEN)');
+  }
   console.log(`PitchPrfct Support Agent API on port ${PORT}`);
   console.log(`Endpoints:`);
   console.log(`  GET  /health`);
