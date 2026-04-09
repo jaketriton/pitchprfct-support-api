@@ -40,15 +40,14 @@ import { generateDraft, classifyConversation } from './drafter.mjs';
 
 const app = express();
 
-// Store raw body for webhook signature verification, then parse JSON
+// Store raw body (Buffer) for webhook signature verification, then parse JSON
 app.use((req, res, next) => {
   if (req.path === '/intercom-webhook') {
-    let rawBody = '';
-    req.setEncoding('utf8');
-    req.on('data', chunk => { rawBody += chunk; });
+    const chunks = [];
+    req.on('data', chunk => { chunks.push(chunk); });
     req.on('end', () => {
-      req.rawBody = rawBody;
-      try { req.body = JSON.parse(rawBody); } catch { req.body = {}; }
+      req.rawBody = Buffer.concat(chunks);
+      try { req.body = JSON.parse(req.rawBody.toString('utf8')); } catch { req.body = {}; }
       next();
     });
   } else {
@@ -334,17 +333,41 @@ app.post('/intercom-webhook', async (req, res) => {
 
 async function handleWebhookEvent(payload) {
   const topic = payload.topic;
-  const data = payload.data?.item || payload.data;
+  console.log(`[WEBHOOK] Received event: topic=${topic}`);
 
   // We care about: conversation.admin.noted (private note added)
   // This is where @bot draft and @bot <feedback> come from
-  if (topic !== 'conversation.admin.noted') return;
+  if (topic !== 'conversation.admin.noted') {
+    console.log(`[WEBHOOK] Ignoring topic: ${topic}`);
+    return;
+  }
 
-  const conversationId = data?.id;
-  if (!conversationId) return;
+  const item = payload.data?.item || payload.data || {};
+  // Intercom can nest the conversation in different ways depending on version/topic.
+  // Try multiple paths to extract the conversation ID.
+  const conversationId =
+    item?.id ||
+    item?.conversation?.id ||
+    item?.conversation_id ||
+    payload.data?.id;
 
-  // Fetch the full conversation to see what happened
-  const conversation = await getConversation(conversationId);
+  console.log(`[WEBHOOK] Extracted conversationId=${conversationId} | item.type=${item?.type}`);
+
+  if (!conversationId) {
+    console.log(`[WEBHOOK] No conversation ID. Payload keys: ${Object.keys(payload || {}).join(',')}, data keys: ${Object.keys(payload.data || {}).join(',')}, item keys: ${Object.keys(item || {}).slice(0, 20).join(',')}`);
+    return;
+  }
+
+  // If the webhook payload already contains the full conversation, use it directly.
+  // Otherwise, fetch from the API.
+  let conversation;
+  if (item?.type === 'conversation' && item?.conversation_parts) {
+    console.log(`[WEBHOOK] Using conversation from webhook payload (${item.conversation_parts?.conversation_parts?.length || 0} parts)`);
+    conversation = item;
+  } else {
+    console.log(`[WEBHOOK] Fetching conversation ${conversationId} from API`);
+    conversation = await getConversation(String(conversationId));
+  }
   const history = extractMessageHistory(conversation);
   const customerEmail = getCustomerEmail(conversation);
 

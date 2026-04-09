@@ -235,10 +235,16 @@ export async function getArticle(articleId) {
  * Intercom sends X-Hub-Signature header with SHA1 HMAC.
  */
 export function verifyWebhook(rawBody, signature) {
-  if (!WEBHOOK_SECRET) return true; // Skip verification if no secret configured
+  const secret = process.env.INTERCOM_WEBHOOK_SECRET;
+  if (!secret) return true; // Skip verification if no secret configured
   if (!signature) return false;
-  const expected = 'sha1=' + crypto.createHmac('sha1', WEBHOOK_SECRET).update(rawBody).digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  // rawBody should be a Buffer; HMAC over raw bytes
+  const body = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody || '', 'utf8');
+  const expected = 'sha1=' + crypto.createHmac('sha1', secret).update(body).digest('hex');
+  const sigBuf = Buffer.from(signature);
+  const expBuf = Buffer.from(expected);
+  if (sigBuf.length !== expBuf.length) return false;
+  return crypto.timingSafeEqual(sigBuf, expBuf);
 }
 
 // ─── Formatting ───
