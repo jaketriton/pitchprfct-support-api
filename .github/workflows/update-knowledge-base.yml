@@ -1,0 +1,45 @@
+name: Weekly Knowledge Base Update
+
+# Runs every Monday at 6am UTC (1am EST / 10pm PST Sunday)
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  update-knowledge-base:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout support-agent-api
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install sentence-transformers psycopg2-binary
+
+      - name: Clone AIDialer codebase
+        run: |
+          git clone --depth 1 https://x-access-token:${{ secrets.AIDIALER_GITHUB_TOKEN }}@github.com/rchvalbo/AIDialer.git /tmp/AIDialer
+        env:
+          AIDIALER_GITHUB_TOKEN: ${{ secrets.AIDIALER_GITHUB_TOKEN }}
+
+      - name: Run knowledge base update
+        run: python scripts/update-knowledge-base.py
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: autumn-sound-83308762
+          NEON_BRANCH_ID: br-proud-mountain-a5ylsqno
+          NEON_ENDPOINT: ep-broad-firefly-a5jkth1v.us-east-2.aws.neon.tech
+          REPO_DIR: /tmp/AIDialer
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Knowledge base update failed! Check logs above."
