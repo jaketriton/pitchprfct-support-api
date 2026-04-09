@@ -253,14 +253,19 @@ export async function getArticle(articleId) {
 export function verifyWebhook(rawBody, signature) {
   const secret = process.env.INTERCOM_WEBHOOK_SECRET;
   if (!secret) return true; // Skip verification if no secret configured
-  if (!signature) return false;
+  if (!signature) {
+    console.warn('[WEBHOOK] No X-Hub-Signature header present');
+    return false;
+  }
   // rawBody should be a Buffer; HMAC over raw bytes
   const body = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody || '', 'utf8');
-  const expected = 'sha1=' + crypto.createHmac('sha1', secret).update(body).digest('hex');
-  const sigBuf = Buffer.from(signature);
-  const expBuf = Buffer.from(expected);
-  if (sigBuf.length !== expBuf.length) return false;
-  return crypto.timingSafeEqual(sigBuf, expBuf);
+  const sha1 = 'sha1=' + crypto.createHmac('sha1', secret).update(body).digest('hex');
+  const sha256 = 'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
+
+  if (signature === sha1 || signature === sha256) return true;
+
+  console.warn(`[WEBHOOK] Signature mismatch. received="${signature}" computed_sha1="${sha1}" computed_sha256="${sha256}" body_len=${body.length} body_preview="${body.slice(0, 120).toString('utf8')}"`);
+  return false;
 }
 
 // ─── Formatting ───
