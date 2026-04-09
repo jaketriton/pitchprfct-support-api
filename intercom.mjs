@@ -124,24 +124,40 @@ export function extractFeedback(body) {
 
 // ─── Posting ───
 
+// Cache of the bot's admin ID (fetched from /me on first use)
+let cachedBotAdminId = null;
+
+async function getBotAdminId() {
+  if (cachedBotAdminId) return cachedBotAdminId;
+  if (process.env.BOT_ADMIN_ID) {
+    cachedBotAdminId = process.env.BOT_ADMIN_ID;
+    return cachedBotAdminId;
+  }
+  // Fetch from /me endpoint using the workspace token
+  const resp = await fetch(`${INTERCOM_BASE}/me`, { headers: headers() });
+  if (!resp.ok) throw new Error(`Could not fetch bot admin ID: ${resp.status}`);
+  const me = await resp.json();
+  cachedBotAdminId = me.id;
+  return cachedBotAdminId;
+}
+
 /**
  * Post a private note on a conversation (visible only to teammates).
  * This is how the agent delivers draft replies for review.
+ * admin_id is required by Intercom — defaults to the token owner's admin ID.
  */
 export async function postNote(conversationId, body, adminId = null) {
-  const payload = {
-    message_type: 'note',
-    type: 'admin',
-    body,
-  };
-
-  // If we know the admin ID of the bot, use it. Otherwise Intercom uses the token owner.
-  if (adminId) payload.admin_id = adminId;
+  const resolvedAdminId = adminId || (await getBotAdminId());
 
   const resp = await fetch(`${INTERCOM_BASE}/conversations/${conversationId}/reply`, {
     method: 'POST',
     headers: headers(),
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      message_type: 'note',
+      type: 'admin',
+      admin_id: resolvedAdminId,
+      body,
+    }),
   });
 
   if (!resp.ok) {
