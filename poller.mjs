@@ -66,10 +66,14 @@ async function isNoteProcessed(noteId) {
 
 async function markNoteProcessed(noteId, conversationId, commandType) {
   const db = await getPool();
+  // Upsert so we can update command_type after completion
+  // (we mark 'in-progress' before running, then final status after)
   await db.query(
     `INSERT INTO processed_notes (note_id, conversation_id, command_type)
      VALUES ($1, $2, $3)
-     ON CONFLICT (note_id) DO NOTHING`,
+     ON CONFLICT (note_id) DO UPDATE
+       SET command_type = EXCLUDED.command_type,
+           processed_at = NOW()`,
     [String(noteId), String(conversationId), commandType]
   );
 }
@@ -194,7 +198,17 @@ async function processBotCommand(conversation, history, note) {
   }
 }
 
+// Prevent concurrent tick executions — drafter calls can take 30-60s,
+// and we don't want multiple ticks double-processing the same note.
+let tickInFlight = false;
+
 async function pollTick() {
+  if (tickInFlight) {
+    // Silently skip; a previous tick is still running.
+    return;
+  }
+  tickInFlight = true;
+
   const lookbackMin = parseInt(process.env.POLL_LOOKBACK_MINUTES || '10', 10);
   try {
     const convoIds = await searchRecentConversations(lookbackMin);
@@ -224,13 +238,17 @@ async function pollTick() {
 
         if (await isNoteProcessed(msg.note_id)) continue;
 
+        // CRITICAL: mark as processed BEFORE running the drafter,
+        // not after. Otherwise a slow drafter means the next tick
+        // sees the same unprocessed note and re-triggers.
+        await markNoteProcessed(msg.note_id, convoId, 'in-progress');
+
         botCommandsFound++;
         try {
           await processBotCommand(conversation, history, msg);
         } catch (err) {
           console.error(`[POLLER] Error processing note ${msg.note_id}: ${err.message}`);
-          // Mark as processed-with-error so we don't loop
-          await markNoteProcessed(msg.note_id, convoId, 'error');
+          // Already marked as processed above, so this won't loop.
         }
       }
     }
@@ -240,6 +258,8 @@ async function pollTick() {
     }
   } catch (err) {
     console.error(`[POLLER] Tick failed: ${err.message}`);
+  } finally {
+    tickInFlight = false;
   }
 }
 
